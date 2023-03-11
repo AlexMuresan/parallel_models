@@ -1,10 +1,12 @@
 import cv2
 import torch
+import numpy as np
+from torchvision import transforms
 
 from effdet.backbone import EfficientDetBackbone
 from effdet.efficientdet.utils import BBoxTransform, ClipBoxes
-from effdet.utils.utils import preprocess, invert_affine, postprocess, preprocess_video
-
+from effdet.utils.utils import (invert_affine, postprocess, preprocess,
+                                preprocess_video)
 from webcamFeed import webcamFeed
 
 
@@ -25,11 +27,11 @@ def display(preds, imgs):
                         (255, 255, 0), 1)
         
         return imgs[i]
-    
+
 
 if __name__ == "__main__":
-    use_float16 = False
 
+    ## Effdet Stuff
     compound_coef = 0
     force_input_size = None  # set None to use default size
 
@@ -52,59 +54,78 @@ if __name__ == "__main__":
             'toothbrush']
 
     # load model
-    model = EfficientDetBackbone(compound_coef=compound_coef, num_classes=len(obj_list))
-    model.load_state_dict(torch.load(f'efficientdet-d{compound_coef}.pth'))
-    model.requires_grad_(False)
-    model.eval()
-
-    if use_float16:
-        model = model.half()
+    model_effdet = EfficientDetBackbone(compound_coef=compound_coef, num_classes=len(obj_list))
+    model_effdet.load_state_dict(torch.load(f'efficientdet-d{compound_coef}.pth'))
+    model_effdet.requires_grad_(False)
+    model_effdet.eval()
 
     # Box
     regressBoxes = BBoxTransform()
     clipBoxes = ClipBoxes()
+    
+    
+    ## YOLO Stuff
+    model_yolo = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
 
-
+    ## Streaming stuff
     # Original link https://hdontap.com/index.php/video/stream/las-vegas-strip-live-cam
     url = "https://edge01.ny.nginx.hdontap.com/hosb5/ng_showcase-coke_bottle-street_fixed.stream/chunklist_w2119158938.m3u8"
 
     feed = webcamFeed(url, 224, 224)
     stream = feed.getStream()
+    frame_idx = 0
 
     while stream.isOpened():
         frame = feed.getFrame()
 
         if frame is not None:
             image = frame
+
             scale_percent = 50 # percent of original size
             width = int(image.shape[1] * scale_percent / 100)
             height = int(image.shape[0] * scale_percent / 100)
             dim = (width, height)
 
             image = cv2.resize(image, dim, interpolation = cv2.INTER_AREA)
+
             ori_imgs, framed_imgs, framed_metas = preprocess_video(image, max_size=input_size)
-
             x = torch.stack([torch.from_numpy(fi) for fi in framed_imgs], 0)
-            x = x.to(torch.float32 if not use_float16 else torch.float16).permute(0, 3, 1, 2)
+            x = x.to(torch.float32).permute(0, 3, 1, 2)
 
-            # model predict
+            img_yolo = image.copy()
+
             with torch.no_grad():
-                features, regression, classification, anchors = model(x)
+                features, regression, classification, anchors = model_effdet(x)
 
                 out = postprocess(x,
                         anchors, regression, classification,
                         regressBoxes, clipBoxes,
                         threshold, iou_threshold)
                 
-            # result
-            out = invert_affine(framed_metas, out)
-            img_show = display(out, ori_imgs)
+                output_yolo = model_yolo(image)
+                
+            out_effdet = invert_affine(framed_metas, out)
+            img_effdet= display(out, ori_imgs)
 
-            # show frame by frame
-            # cv2.imshow('frame',img_show)
+            for detection in output_yolo.xyxy[0]:
+                xmin = int(detection[0])
+                ymin = int(detection[1])
 
-            cv2.imshow("Live Stream", img_show)
+                xmax = int(detection[2])
+                ymax = int(detection[3])
+
+                cv2.rectangle(img_yolo, (xmin, ymin), (xmax, ymax), (0,255,0), 1)
+
+            # cv2.imshow("YOLOV5", img_yolo)
+            # cv2.imshow("EfficientNet", img_effdet)
+
+            img_combined = np.concatenate((img_yolo, img_effdet), axis=1)
+            cv2.imshow("YoloV5 vs EfficientDet", img_combined)
 
             if cv2.waitKey(22) & 0xFF == ord('q'):
                 print("Done")
                 break
+
+
+
+
