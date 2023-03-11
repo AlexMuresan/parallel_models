@@ -11,22 +11,44 @@ from webcamFeed import webcamFeed
 
 
 # function for display
-def display(preds, imgs):
+def draw_effdet(preds, imgs, obj_list, threshold=0.45):
     for i in range(len(imgs)):
         if len(preds[i]['rois']) == 0:
             return imgs[i]
 
         for j in range(len(preds[i]['rois'])):
-            (x1, y1, x2, y2) = preds[i]['rois'][j].astype(int)
-            cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
-            obj = obj_list[preds[i]['class_ids'][j]]
             score = float(preds[i]['scores'][j])
+            if score >= threshold:
+                (x1, y1, x2, y2) = preds[i]['rois'][j].astype(int)
+                cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
+                obj = obj_list[preds[i]['class_ids'][j]]
 
-            cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score),
-                        (x1, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                        (255, 255, 0), 1)
+                cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score),
+                            (x1, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            (255, 255, 0), 1)
         
         return imgs[i]
+    
+
+def draw_yolov5(preds, img, obj_list, threshold=0.45):
+    # for detection in output_yolo.xyxy[0]:
+    for detection in preds:
+        confidence = detection[4]
+        if confidence >= threshold:
+            xmin = int(detection[0])
+            ymin = int(detection[1])
+
+            xmax = int(detection[2])
+            ymax = int(detection[3])
+
+            object_name = obj_list[detection[5].numpy().astype(int)]
+
+            cv2.rectangle(img, (xmin, ymin), (xmax, ymax), (0,255,0), 1)
+            cv2.putText(img, '{}, {:.3f}'.format(object_name, confidence),
+                            (xmin, ymin + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            (0, 255, 0), 1)
+
+    return img
 
 
 if __name__ == "__main__":
@@ -105,16 +127,8 @@ if __name__ == "__main__":
                 output_yolo = model_yolo(image)
                 
             out_effdet = invert_affine(framed_metas, out)
-            img_effdet= display(out, ori_imgs)
-
-            for detection in output_yolo.xyxy[0]:
-                xmin = int(detection[0])
-                ymin = int(detection[1])
-
-                xmax = int(detection[2])
-                ymax = int(detection[3])
-
-                cv2.rectangle(img_yolo, (xmin, ymin), (xmax, ymax), (0,255,0), 1)
+            img_effdet= draw_effdet(out, ori_imgs, obj_list, 0.3)
+            img_yolo = draw_yolov5(output_yolo.xyxy[0], img_yolo, obj_list, 0.3)
 
             # cv2.imshow("YOLOV5", img_yolo)
             # cv2.imshow("EfficientNet", img_effdet)
