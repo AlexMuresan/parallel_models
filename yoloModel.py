@@ -11,7 +11,9 @@ class yoloModel(detectionModel):
 
     def load_model(self):
         print(f"Loading {self.model_name}...")
-        self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+        torch.hub.set_dir('./weights/ultralytics_yolov5_master')
+        self.model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True, verbose=False)
+
         print(f"Model {self.model_name} loaded.")
         return self.model
     

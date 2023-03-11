@@ -29,7 +29,7 @@ class efficientDetModel(detectionModel):
         print(f"Loading {self.model_name}...")
         self.model = EfficientDetBackbone(compound_coef=self.compound_coef, 
                                           num_classes=len(self.obj_list))
-        self.model.load_state_dict(torch.load(f'efficientdet-d{self.compound_coef}.pth'))
+        self.model.load_state_dict(torch.load(f'./weights/efficientdet-d{self.compound_coef}.pth'))
         self.model.requires_grad_(False)
         self.model.eval()
 
@@ -57,7 +57,7 @@ class efficientDetModel(detectionModel):
                 (x1, y1, x2, y2) = self.preds[0]['rois'][j].astype(int)
                 obj = self.obj_list[self.preds[0]['class_ids'][j]]
 
-                cv2.rectangle(image, (x1, y1), (x2, y2), (255, 255, 0), 2)
+                cv2.rectangle(image, (x1, y1), (x2, y2), (255, 255, 0), 1)
                 cv2.putText(image, '{}, {:.3f}'.format(obj, score),
                             (x1, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                             (255, 255, 0), 1)
