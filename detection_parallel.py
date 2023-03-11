@@ -1,94 +1,12 @@
 import cv2
-import torch
 import numpy as np
-from torchvision import transforms
 
-from effdet.backbone import EfficientDetBackbone
-from effdet.efficientdet.utils import BBoxTransform, ClipBoxes
-from effdet.utils.utils import (invert_affine, postprocess, preprocess,
-                                preprocess_video)
+from yoloModel import yoloModel
 from webcamFeed import webcamFeed
-
-
-# function for display
-def draw_effdet(preds, imgs, obj_list, threshold=0.45):
-    for i in range(len(imgs)):
-        if len(preds[i]['rois']) == 0:
-            return imgs[i]
-
-        for j in range(len(preds[i]['rois'])):
-            score = float(preds[i]['scores'][j])
-            if score >= threshold:
-                (x1, y1, x2, y2) = preds[i]['rois'][j].astype(int)
-                cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
-                obj = obj_list[preds[i]['class_ids'][j]]
-
-                cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score),
-                            (x1, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                            (255, 255, 0), 1)
-        
-        return imgs[i]
-    
-
-def draw_yolov5(preds, img, obj_list, threshold=0.45):
-    # for detection in output_yolo.xyxy[0]:
-    for detection in preds:
-        confidence = detection[4]
-        if confidence >= threshold:
-            xmin = int(detection[0])
-            ymin = int(detection[1])
-
-            xmax = int(detection[2])
-            ymax = int(detection[3])
-
-            object_name = obj_list[detection[5].numpy().astype(int)]
-
-            cv2.rectangle(img, (xmin, ymin), (xmax, ymax), (0,255,0), 1)
-            cv2.putText(img, '{}, {:.3f}'.format(object_name, confidence),
-                            (xmin, ymin + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                            (0, 255, 0), 1)
-
-    return img
+from efficientDetModel import efficientDetModel
 
 
 if __name__ == "__main__":
-
-    ## Effdet Stuff
-    compound_coef = 0
-    force_input_size = None  # set None to use default size
-
-    threshold = 0.2
-    iou_threshold = 0.2
-
-    # tf bilinear interpolation is different from any other's, just make do
-    input_sizes = [512, 640, 768, 896, 1024, 1280, 1280, 1536, 1536]
-    input_size = input_sizes[compound_coef] if force_input_size is None else force_input_size
-
-    obj_list = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
-            'fire hydrant', '', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep',
-            'cow', 'elephant', 'bear', 'zebra', 'giraffe', '', 'backpack', 'umbrella', '', '', 'handbag', 'tie',
-            'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove',
-            'skateboard', 'surfboard', 'tennis racket', 'bottle', '', 'wine glass', 'cup', 'fork', 'knife', 'spoon',
-            'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut',
-            'cake', 'chair', 'couch', 'potted plant', 'bed', '', 'dining table', '', '', 'toilet', '', 'tv',
-            'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
-            'refrigerator', '', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier',
-            'toothbrush']
-
-    # load model
-    model_effdet = EfficientDetBackbone(compound_coef=compound_coef, num_classes=len(obj_list))
-    model_effdet.load_state_dict(torch.load(f'efficientdet-d{compound_coef}.pth'))
-    model_effdet.requires_grad_(False)
-    model_effdet.eval()
-
-    # Box
-    regressBoxes = BBoxTransform()
-    clipBoxes = ClipBoxes()
-    
-    
-    ## YOLO Stuff
-    model_yolo = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
-
     ## Streaming stuff
     # Original link https://hdontap.com/index.php/video/stream/las-vegas-strip-live-cam
     url = "https://edge01.ny.nginx.hdontap.com/hosb5/ng_showcase-coke_bottle-street_fixed.stream/chunklist_w2119158938.m3u8"
@@ -96,6 +14,12 @@ if __name__ == "__main__":
     feed = webcamFeed(url, 224, 224)
     stream = feed.getStream()
     frame_idx = 0
+
+    yolo = yoloModel(pretrained=True)
+    yolo.load_model()
+
+    effdet = efficientDetModel()
+    effdet.load_model()
 
     while stream.isOpened():
         frame = feed.getFrame()
@@ -110,27 +34,12 @@ if __name__ == "__main__":
 
             image = cv2.resize(image, dim, interpolation = cv2.INTER_AREA)
 
-            ori_imgs, framed_imgs, framed_metas = preprocess_video(image, max_size=input_size)
-            x = torch.stack([torch.from_numpy(fi) for fi in framed_imgs], 0)
-            x = x.to(torch.float32).permute(0, 3, 1, 2)
-
-            img_yolo = image.copy()
-
-            with torch.no_grad():
-                features, regression, classification, anchors = model_effdet(x)
-
-                out = postprocess(x,
-                        anchors, regression, classification,
-                        regressBoxes, clipBoxes,
-                        threshold, iou_threshold)
-                
-                output_yolo = model_yolo(image)
-                
-            out_effdet = invert_affine(framed_metas, out)
-            img_effdet= draw_effdet(out, ori_imgs, obj_list, 0.3)
-            img_yolo = draw_yolov5(output_yolo.xyxy[0], img_yolo, obj_list, 0.3)
-
+            yolo.infer(image)
+            img_yolo = yolo.draw_detections(image.copy())
             # cv2.imshow("YOLOV5", img_yolo)
+
+            effdet.infer(image)
+            img_effdet = effdet.draw_detections(image.copy())
             # cv2.imshow("EfficientNet", img_effdet)
 
             img_combined = np.concatenate((img_yolo, img_effdet), axis=1)
