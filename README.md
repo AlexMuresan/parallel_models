@@ -18,3 +18,7 @@ The two models I used:
 
 1. YoloV5 from [Ultralytics](https://github.com/ultralytics/yolov5)
 2. EfficientDet from [Yet Another EfficientDet Pytorch](https://github.com/zylo117/Yet-Another-EfficientDet-Pytorch)
+
+## Example
+
+![Image of algoritghm running](example.png)
